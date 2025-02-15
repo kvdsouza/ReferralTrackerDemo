@@ -20,39 +20,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Generate new referral code
   app.post("/api/referrals", requireAuth, async (req, res) => {
-    const parsed = insertReferralSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json(parsed.error);
-    }
+    try {
+      const parsed = insertReferralSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json(parsed.error);
+      }
 
-    const referral = await storage.createReferral(req.user!.id, parsed.data);
-    res.status(201).json(referral);
+      const referral = await storage.createReferral(req.user!.id, parsed.data);
+      res.status(201).json(referral);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
   });
 
   // Verify referral
   app.post("/api/referrals/verify", requireAuth, async (req, res) => {
-    const parsed = verifyReferralSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json(parsed.error);
+    try {
+      const parsed = verifyReferralSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json(parsed.error);
+      }
+
+      const referral = await storage.getReferralByCode(parsed.data.referralCode);
+      if (!referral) {
+        return res.status(404).json({ message: "Invalid referral code" });
+      }
+
+      if (referral.verified) {
+        return res.status(400).json({ message: "Referral already verified" });
+      }
+
+      const updated = await storage.updateReferral(referral.id, {
+        referredCustomerAddress: parsed.data.referredCustomerAddress,
+        installationDate: new Date(parsed.data.installationDate),
+        verified: true,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
     }
-
-    const referral = await storage.getReferralByCode(parsed.data.referralCode);
-    if (!referral) {
-      return res.status(404).json({ message: "Invalid referral code" });
-    }
-
-    if (referral.verified) {
-      return res.status(400).json({ message: "Referral already verified" });
-    }
-
-    const updated = await storage.updateReferral(referral.id, {
-      referredCustomerName: parsed.data.referredCustomerName,
-      installationDate: new Date(parsed.data.installationDate),
-      status: "completed",
-      verified: true,
-    });
-
-    res.json(updated);
   });
 
   const httpServer = createServer(app);
