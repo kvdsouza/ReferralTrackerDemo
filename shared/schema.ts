@@ -12,11 +12,11 @@ export const users = pgTable("users", {
 export const referrals = pgTable("referrals", {
   id: serial("id").primaryKey(),
   contractorId: integer("contractor_id").notNull(),
-  customerName: text("customer_name").notNull(),
+  customerAddress: text("customer_address").notNull(),
   customerEmail: text("customer_email").notNull(),
   referralCode: text("referral_code").notNull().unique(),
   installationDate: timestamp("installation_date"),
-  referredCustomerName: text("referred_customer_name"),
+  referredCustomerAddress: text("referred_customer_address"),
   status: text("status").notNull().default("pending"),
   verified: boolean("verified").notNull().default(false),
 });
@@ -29,13 +29,13 @@ export const insertUserSchema = createInsertSchema(users).extend({
 });
 
 export const insertReferralSchema = createInsertSchema(referrals).pick({
-  customerName: true,
+  customerAddress: true,
   customerEmail: true,
 });
 
 export const verifyReferralSchema = z.object({
   referralCode: z.string(),
-  referredCustomerName: z.string(),
+  referredCustomerAddress: z.string(),
   installationDate: z.string(),
 });
 

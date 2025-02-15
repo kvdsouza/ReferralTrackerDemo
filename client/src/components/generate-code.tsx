@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -67,18 +68,21 @@ export default function GenerateCode() {
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Manage Referrals</DialogTitle>
+          <DialogDescription>
+            Generate new referral codes or verify existing ones.
+          </DialogDescription>
         </DialogHeader>
-        
+
         <Tabs defaultValue="generate" className="mt-4">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="generate">Generate Code</TabsTrigger>
             <TabsTrigger value="verify">Verify Referral</TabsTrigger>
           </TabsList>
-          
+
           <TabsContent value="generate">
             <GenerateForm mutation={generateMutation} />
           </TabsContent>
-          
+
           <TabsContent value="verify">
             <VerifyForm mutation={verifyMutation} />
           </TabsContent>
@@ -92,7 +96,7 @@ function GenerateForm({ mutation }: { mutation: any }) {
   const form = useForm({
     resolver: zodResolver(insertReferralSchema),
     defaultValues: {
-      customerName: "",
+      customerAddress: "",
       customerEmail: "",
     },
   });
@@ -102,18 +106,18 @@ function GenerateForm({ mutation }: { mutation: any }) {
       <form onSubmit={form.handleSubmit((data) => mutation.mutate(data))} className="space-y-4">
         <FormField
           control={form.control}
-          name="customerName"
+          name="customerAddress"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Customer Name</FormLabel>
+              <FormLabel>Customer Address</FormLabel>
               <FormControl>
-                <Input {...field} />
+                <Input {...field} placeholder="123 Main St, City, State, ZIP" />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
           name="customerEmail"
@@ -142,7 +146,7 @@ function VerifyForm({ mutation }: { mutation: any }) {
     resolver: zodResolver(verifyReferralSchema),
     defaultValues: {
       referralCode: "",
-      referredCustomerName: "",
+      referredCustomerAddress: "",
       installationDate: "",
     },
   });
@@ -163,21 +167,21 @@ function VerifyForm({ mutation }: { mutation: any }) {
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
-          name="referredCustomerName"
+          name="referredCustomerAddress"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>New Customer Name</FormLabel>
+              <FormLabel>New Customer Address</FormLabel>
               <FormControl>
-                <Input {...field} />
+                <Input {...field} placeholder="123 Main St, City, State, ZIP" />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
           name="installationDate"

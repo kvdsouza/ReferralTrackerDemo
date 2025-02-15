@@ -26,18 +26,18 @@ export default function ReferralTable() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Customer Name</TableHead>
+            <TableHead>Customer Address</TableHead>
             <TableHead>Email</TableHead>
             <TableHead>Referral Code</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Referred Customer</TableHead>
+            <TableHead>Referred Address</TableHead>
             <TableHead>Installation Date</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {referrals?.map((referral) => (
             <TableRow key={referral.id}>
-              <TableCell>{referral.customerName}</TableCell>
+              <TableCell>{referral.customerAddress}</TableCell>
               <TableCell>{referral.customerEmail}</TableCell>
               <TableCell>
                 <code className="rounded bg-muted px-2 py-1">
@@ -46,12 +46,12 @@ export default function ReferralTable() {
               </TableCell>
               <TableCell>
                 <Badge 
-                  variant={referral.verified ? "success" : "secondary"}
+                  variant={referral.verified ? "outline" : "secondary"}
                 >
                   {referral.status}
                 </Badge>
               </TableCell>
-              <TableCell>{referral.referredCustomerName || "-"}</TableCell>
+              <TableCell>{referral.referredCustomerAddress || "-"}</TableCell>
               <TableCell>
                 {referral.installationDate
                   ? format(new Date(referral.installationDate), "PP")
@@ -78,11 +78,11 @@ function ReferralTableSkeleton() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Customer Name</TableHead>
+            <TableHead>Customer Address</TableHead>
             <TableHead>Email</TableHead>
             <TableHead>Referral Code</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Referred Customer</TableHead>
+            <TableHead>Referred Address</TableHead>
             <TableHead>Installation Date</TableHead>
           </TableRow>
         </TableHeader>
