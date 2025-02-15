@@ -1,9 +1,11 @@
-import { type User, type InsertUser, type Referral, type InsertReferral } from "@shared/schema";
+import { users, referrals, type User, type InsertUser, type Referral, type InsertReferral } from "@shared/schema";
+import { db } from "./db";
+import { eq, and } from "drizzle-orm";
 import session from "express-session";
-import createMemoryStore from "memorystore";
-import { nanoid } from "nanoid";
+import connectPg from "connect-pg-simple";
+import { pool } from "./db";
 
-const MemoryStore = createMemoryStore(session);
+const PostgresSessionStore = connectPg(session);
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -18,44 +20,36 @@ export interface IStorage {
   sessionStore: session.Store;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private referrals: Map<number, Referral>;
-  private currentUserId: number;
-  private currentReferralId: number;
+export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    this.users = new Map();
-    this.referrals = new Map();
-    this.currentUserId = 1;
-    this.currentReferralId = 1;
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000,
+    this.sessionStore = new PostgresSessionStore({
+      pool,
+      createTableIfMissing: true,
     });
   }
 
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentUserId++;
-    const user: User = { id, ...insertUser };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
   async getReferrals(contractorId: number): Promise<Referral[]> {
-    return Array.from(this.referrals.values()).filter(
-      (ref) => ref.contractorId === contractorId,
-    );
+    return await db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.contractorId, contractorId));
   }
 
   private calculateStatus(installationDate: Date | null): string {
@@ -66,49 +60,69 @@ export class MemStorage implements IStorage {
   }
 
   async createReferral(contractorId: number, data: InsertReferral): Promise<Referral> {
-    const id = this.currentReferralId++;
-    const referral: Referral = {
-      id,
-      contractorId,
-      referralCode: nanoid(10),
-      installationDate: null,
-      referredCustomerAddress: null,
-      status: "pending",
-      verified: false,
-      ...data,
-    };
-    this.referrals.set(id, referral);
+    const [referral] = await db
+      .insert(referrals)
+      .values({
+        ...data,
+        contractorId,
+        referralCode: Math.random().toString(36).substring(2, 12),
+        status: "pending",
+        verified: false,
+      })
+      .returning();
     return referral;
   }
 
   async getReferralByCode(code: string): Promise<Referral | undefined> {
-    // Return the first unverified referral with this code
-    return Array.from(this.referrals.values()).find(
-      (ref) => ref.referralCode === code && !ref.verified,
-    );
+    const [referral] = await db
+      .select()
+      .from(referrals)
+      .where(
+        and(
+          eq(referrals.referralCode, code),
+          eq(referrals.verified, false)
+        )
+      );
+    return referral;
   }
 
   async updateReferral(id: number, data: Partial<Referral>): Promise<Referral> {
-    const referral = this.referrals.get(id);
-    if (!referral) throw new Error("Referral not found");
+    // Check if the referral exists
+    const [existingReferral] = await db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.id, id));
 
-    // If we're updating the referred address, check for uniqueness
+    if (!existingReferral) {
+      throw new Error("Referral not found");
+    }
+
+    // Check for duplicate referred address
     if (data.referredCustomerAddress) {
-      const existingReferrals = await this.getReferrals(referral.contractorId);
-      const hasDuplicateAddress = existingReferrals.some(
-        ref => ref.referredCustomerAddress === data.referredCustomerAddress
-      );
+      const [duplicateAddress] = await db
+        .select()
+        .from(referrals)
+        .where(eq(referrals.referredCustomerAddress, data.referredCustomerAddress));
 
-      if (hasDuplicateAddress) {
+      if (duplicateAddress) {
         throw new Error("This referred address is already registered");
       }
     }
 
-    const status = this.calculateStatus(data.installationDate || referral.installationDate);
-    const updated = { ...referral, ...data, status };
-    this.referrals.set(id, updated);
+    // Calculate status based on installation date
+    const status = this.calculateStatus(
+      data.installationDate || existingReferral.installationDate
+    );
+
+    // Update the referral
+    const [updated] = await db
+      .update(referrals)
+      .set({ ...data, status })
+      .where(eq(referrals.id, id))
+      .returning();
+
     return updated;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
