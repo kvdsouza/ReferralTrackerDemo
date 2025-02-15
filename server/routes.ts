@@ -41,16 +41,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json(parsed.error);
       }
 
-      const referral = await storage.getReferralByCode(parsed.data.referralCode);
-      if (!referral) {
+      // Get the original referral to copy customer details
+      const originalReferral = await storage.getReferralByCode(parsed.data.referralCode);
+      if (!originalReferral) {
         return res.status(404).json({ message: "Invalid referral code" });
       }
 
-      if (referral.verified) {
-        return res.status(400).json({ message: "Referral already verified" });
-      }
+      // Create a new referral record with the same code but new referred address
+      const newReferral = await storage.createReferral(req.user!.id, {
+        customerAddress: originalReferral.customerAddress,
+        customerEmail: originalReferral.customerEmail,
+      });
 
-      const updated = await storage.updateReferral(referral.id, {
+      // Update the new referral with verification details
+      const updated = await storage.updateReferral(newReferral.id, {
+        referralCode: originalReferral.referralCode,
         referredCustomerAddress: parsed.data.referredCustomerAddress,
         installationDate: new Date(parsed.data.installationDate),
         verified: true,

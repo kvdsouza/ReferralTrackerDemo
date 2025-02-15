@@ -66,16 +66,6 @@ export class MemStorage implements IStorage {
   }
 
   async createReferral(contractorId: number, data: InsertReferral): Promise<Referral> {
-    // Check for duplicate referred address
-    const existingReferrals = await this.getReferrals(contractorId);
-    const hasDuplicateAddress = existingReferrals.some(
-      ref => ref.customerAddress === data.customerAddress
-    );
-
-    if (hasDuplicateAddress) {
-      throw new Error("This customer address already has a referral code");
-    }
-
     const id = this.currentReferralId++;
     const referral: Referral = {
       id,
@@ -92,8 +82,9 @@ export class MemStorage implements IStorage {
   }
 
   async getReferralByCode(code: string): Promise<Referral | undefined> {
+    // Return the first unverified referral with this code
     return Array.from(this.referrals.values()).find(
-      (ref) => ref.referralCode === code,
+      (ref) => ref.referralCode === code && !ref.verified,
     );
   }
 
@@ -105,7 +96,7 @@ export class MemStorage implements IStorage {
     if (data.referredCustomerAddress) {
       const existingReferrals = await this.getReferrals(referral.contractorId);
       const hasDuplicateAddress = existingReferrals.some(
-        ref => ref.id !== id && ref.referredCustomerAddress === data.referredCustomerAddress
+        ref => ref.referredCustomerAddress === data.referredCustomerAddress
       );
 
       if (hasDuplicateAddress) {

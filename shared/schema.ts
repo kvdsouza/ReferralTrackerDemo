@@ -14,7 +14,7 @@ export const referrals = pgTable("referrals", {
   contractorId: integer("contractor_id").notNull(),
   customerAddress: text("customer_address").notNull(),
   customerEmail: text("customer_email").notNull(),
-  referralCode: text("referral_code").notNull().unique(),
+  referralCode: text("referral_code").notNull(),
   installationDate: timestamp("installation_date"),
   referredCustomerAddress: text("referred_customer_address"),
   status: text("status").notNull().default("pending"),
