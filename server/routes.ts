@@ -5,8 +5,6 @@ import { storage } from "./storage";
 import { insertReferralSchema, verifyReferralSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  setupAuth(app);
-
   const requireAuth = (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     next();
@@ -41,21 +39,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json(parsed.error);
       }
 
-      // Get the original referral to copy customer details
+      // Get the original referral to verify
       const originalReferral = await storage.getReferralByCode(parsed.data.referralCode);
       if (!originalReferral) {
         return res.status(404).json({ message: "Invalid referral code" });
       }
 
-      // Create a new referral record with the same code but new referred address
-      const newReferral = await storage.createReferral(req.user!.id, {
-        customerAddress: originalReferral.customerAddress,
-        customerEmail: originalReferral.customerEmail,
-      });
-
-      // Update the new referral with verification details
-      const updated = await storage.updateReferral(newReferral.id, {
-        referralCode: originalReferral.referralCode,
+      const updated = await storage.updateReferral(originalReferral.id, {
         referredCustomerAddress: parsed.data.referredCustomerAddress,
         installationDate: new Date(parsed.data.installationDate),
         verified: true,
