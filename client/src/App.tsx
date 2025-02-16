@@ -7,11 +7,12 @@ import AuthPage from "@/pages/auth-page";
 import HomePage from "@/pages/home-page";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "./lib/protected-route";
+import { WelcomeModal } from "@/components/welcome-modal";
 
 function Router() {
   return (
     <Switch>
-      <ProtectedRoute path="/" component={HomePage} />
+      <Route path="/" component={() => <ProtectedRoute path="/" component={HomePage} />} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
@@ -23,6 +24,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Router />
+        <WelcomeModal />
         <Toaster />
       </AuthProvider>
     </QueryClientProvider>
