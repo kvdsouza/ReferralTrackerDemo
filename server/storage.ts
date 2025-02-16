@@ -18,6 +18,30 @@ async function hashPassword(password: string) {
   return `${buf.toString("hex")}.${salt}`;
 }
 
+async function generateUniqueReferralCode(tx: any, contractorPrefix: string): Promise<string> {
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  while (attempts < maxAttempts) {
+    const uniqueId = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const referralCode = `${contractorPrefix}-${uniqueId}`;
+
+    // Check if code already exists
+    const [existing] = await tx
+      .select()
+      .from(referrals)
+      .where(eq(referrals.referralCode, referralCode));
+
+    if (!existing) {
+      return referralCode;
+    }
+
+    attempts++;
+  }
+
+  throw new Error("Failed to generate unique referral code after multiple attempts");
+}
+
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -68,58 +92,61 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createReferral(contractorId: number, data: InsertReferral): Promise<Referral> {
-    try {
-      // Verify contractor exists and get company info for code generation
-      const [contractor] = await db
-        .select()
-        .from(users)
-        .where(and(
-          eq(users.id, contractorId),
-          eq(users.role, userRoles.CONTRACTOR)
-        ));
+    return await db.transaction(async (tx) => {
+      try {
+        // Verify contractor exists and get company info for code generation
+        const [contractor] = await tx
+          .select()
+          .from(users)
+          .where(and(
+            eq(users.id, contractorId),
+            eq(users.role, userRoles.CONTRACTOR)
+          ));
 
-      if (!contractor) {
-        throw new Error("Invalid contractor ID or user is not a contractor");
+        if (!contractor) {
+          throw new Error("Invalid contractor ID or user is not a contractor");
+        }
+
+        // Verify referrer exists and is associated with this contractor
+        const [referrer] = await tx
+          .select()
+          .from(users)
+          .where(and(
+            eq(users.id, data.referrerId),
+            eq(users.contractorId, contractorId),
+            eq(users.role, userRoles.EXISTING_HOMEOWNER)
+          ));
+
+        if (!referrer) {
+          throw new Error("Referrer must be an existing homeowner associated with this contractor");
+        }
+
+        // Generate unique referral code
+        const contractorPrefix = contractor.companyName
+          ? contractor.companyName.substring(0, 3).toUpperCase()
+          : 'REF';
+        const referralCode = await generateUniqueReferralCode(tx, contractorPrefix);
+
+        // Create the referral
+        const [referral] = await tx
+          .insert(referrals)
+          .values({
+            contractorId,
+            referrerId: data.referrerId,
+            referredCustomerAddress: data.referredCustomerAddress || '',
+            installationDate: data.installationDate || null,
+            referralCode,
+            status: "pending",
+            verified: false,
+          })
+          .returning();
+
+        return referral;
+      } catch (error) {
+        console.error('Error creating referral:', error);
+        throw error;
       }
-
-      // Verify referrer exists and is associated with this contractor
-      const [referrer] = await db
-        .select()
-        .from(users)
-        .where(and(
-          eq(users.id, data.referrerId),
-          eq(users.contractorId, contractorId),
-          eq(users.role, userRoles.EXISTING_HOMEOWNER)
-        ));
-
-      if (!referrer) {
-        throw new Error("Referrer must be an existing homeowner associated with this contractor");
-      }
-
-      // Generate unique referral code
-      const contractorPrefix = contractor.companyName
-        ? contractor.companyName.substring(0, 3).toUpperCase()
-        : 'REF';
-      const uniqueId = Math.random().toString(36).substring(2, 7).toUpperCase();
-      const referralCode = `${contractorPrefix}-${uniqueId}`;
-
-      // Create the referral
-      const [referral] = await db
-        .insert(referrals)
-        .values({
-          ...data,
-          contractorId,
-          referralCode,
-          status: "pending",
-          verified: false,
-        })
-        .returning();
-
-      return referral;
-    } catch (error: any) {
-      console.error('Error creating referral:', error);
-      throw error;
-    }
+    });
   }
 
   async getReferralByCode(code: string): Promise<Referral | undefined> {
@@ -181,8 +208,7 @@ export class DatabaseStorage implements IStorage {
         // Process each homeowner
         const createdUsers = await Promise.all(homeowners.map(async (homeowner) => {
           // Generate unique referral code
-          const uniqueId = Math.random().toString(36).substring(2, 7).toUpperCase();
-          const referralCode = `${contractorPrefix}-${uniqueId}`;
+          const referralCode = await generateUniqueReferralCode(tx, contractorPrefix);
 
           // Create user with hashed password
           const [user] = await tx

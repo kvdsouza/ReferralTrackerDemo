@@ -13,22 +13,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get all referrals for the logged in contractor
   app.get("/api/referrals", requireAuth, async (req, res) => {
-    const referrals = await storage.getReferrals(req.user!.id);
-    res.json(referrals);
+    try {
+      const referrals = await storage.getReferrals(req.user!.id);
+      res.json(referrals);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
   });
 
   // Generate new referral code for existing homeowner
   app.post("/api/referrals/generate", requireAuth, async (req, res) => {
     try {
-      console.log('Referral generation request:', {
-        userRole: req.user?.role,
-        userId: req.user?.id,
-        body: req.body
-      });
-
       // Verify the user is an existing homeowner
       if (req.user!.role !== userRoles.EXISTING_HOMEOWNER) {
-        console.log('User role check failed:', req.user!.role);
         return res.status(403).json({ 
           message: "Only existing homeowners can generate referral codes" 
         });
@@ -37,25 +34,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get and validate the contractor ID
       const { contractorId } = req.body;
       if (!contractorId) {
-        console.log('Missing contractorId in request body');
         return res.status(400).json({ message: "Contractor ID is required" });
       }
 
       // Verify contractor exists and has correct role
       const contractor = await storage.getUser(contractorId);
       if (!contractor || contractor.role !== userRoles.CONTRACTOR) {
-        console.log('Invalid contractor:', { contractorId, found: !!contractor, role: contractor?.role });
         return res.status(400).json({ message: "Invalid contractor ID" });
       }
 
-      console.log('Creating referral for contractor:', contractorId);
+      // Verify the homeowner is associated with this contractor
+      if (req.user!.contractorId !== contractorId) {
+        return res.status(403).json({ 
+          message: "You can only generate referral codes for your assigned contractor" 
+        });
+      }
+
       const referral = await storage.createReferral(contractorId, {
         referrerId: req.user!.id,
         referredCustomerAddress: '',
         installationDate: null
       });
 
-      console.log('Referral created successfully:', referral);
       res.status(201).json(referral);
     } catch (error: any) {
       console.error('Error generating referral:', error);
@@ -66,16 +66,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create referral by contractor
   app.post("/api/referrals", requireAuth, async (req, res) => {
     try {
-      // Verify the user is a contractor
       if (req.user!.role !== userRoles.CONTRACTOR) {
-        return res.status(403).json({ 
-          message: "Only contractors can create referrals" 
-        });
+        return res.status(403).json({ message: "Only contractors can create referrals" });
       }
 
       const parsed = insertReferralSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json(parsed.error);
+        return res.status(400).json({ message: "Invalid referral data", errors: parsed.error.errors });
+      }
+
+      // Verify the referrer exists and is associated with this contractor
+      const referrer = await storage.getUser(parsed.data.referrerId);
+      if (!referrer || referrer.contractorId !== req.user!.id) {
+        return res.status(400).json({ message: "Invalid referrer ID" });
       }
 
       const referral = await storage.createReferral(req.user!.id, parsed.data);
@@ -119,16 +122,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json(parsed.error);
       }
 
-      // Get the original referral to verify
-      const originalReferral = await storage.getReferralByCode(parsed.data.referralCode);
-      if (!originalReferral) {
+      const referral = await storage.getReferralByCode(parsed.data.referralCode);
+      if (!referral) {
         return res.status(404).json({ message: "Invalid referral code" });
       }
 
-      const updated = await storage.updateReferral(originalReferral.id, {
+      // Verify the contractor is authorized to verify this referral
+      if (referral.contractorId !== req.user!.id) {
+        return res.status(403).json({ message: "You are not authorized to verify this referral" });
+      }
+
+      const updated = await storage.updateReferral(referral.id, {
         referredCustomerAddress: parsed.data.referredCustomerAddress,
         installationDate: new Date(parsed.data.installationDate),
         verified: true,
+        status: 'complete'
       });
 
       res.json(updated);
@@ -140,16 +148,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bulk import existing homeowners
   app.post("/api/homeowners/bulk-import", requireAuth, async (req, res) => {
     try {
-      // Verify the user is a contractor
       if (req.user!.role !== userRoles.CONTRACTOR) {
         return res.status(403).json({
           message: "Only contractors can import homeowners"
         });
       }
 
-      console.log('Starting bulk import for contractor:', req.user!.id);
-
-      // Validate the input data
       const parsed = bulkHomeownerImportSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({
@@ -158,10 +162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Process the bulk import
       const results = await storage.bulkImportHomeowners(req.user!.id, parsed.data);
-
-      console.log('Bulk import completed, created users:', results.length);
 
       res.status(201).json({
         message: `Successfully imported ${results.length} homeowners`,
