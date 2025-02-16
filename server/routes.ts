@@ -19,8 +19,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Generate new referral code for existing homeowner
   app.post("/api/referrals/generate", requireAuth, async (req, res) => {
     try {
+      console.log('Referral generation request:', {
+        userRole: req.user?.role,
+        userId: req.user?.id,
+        body: req.body
+      });
+
       // Verify the user is an existing homeowner
       if (req.user!.role !== userRoles.EXISTING_HOMEOWNER) {
+        console.log('User role check failed:', req.user!.role);
         return res.status(403).json({ 
           message: "Only existing homeowners can generate referral codes" 
         });
@@ -29,17 +36,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get the contractor ID from the request body
       const { contractorId } = req.body;
       if (!contractorId) {
+        console.log('Missing contractorId in request body');
         return res.status(400).json({ message: "Contractor ID is required" });
       }
 
+      console.log('Creating referral for contractor:', contractorId);
       const referral = await storage.createReferral(contractorId, {
         referrerId: req.user!.id,
         referredCustomerAddress: '',
         installationDate: null
       });
 
+      console.log('Referral created successfully:', referral);
       res.status(201).json(referral);
     } catch (error: any) {
+      console.error('Error generating referral:', error);
       res.status(400).json({ message: error.message });
     }
   });
