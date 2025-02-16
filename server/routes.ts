@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { insertReferralSchema, verifyReferralSchema, userRoles } from "@shared/schema";
+import { bulkHomeownerImportSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const requireAuth = (req: any, res: any, next: any) => {
@@ -132,6 +133,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(updated);
     } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Bulk import existing homeowners
+  app.post("/api/homeowners/bulk-import", requireAuth, async (req, res) => {
+    try {
+      // Verify the user is a contractor
+      if (req.user!.role !== userRoles.CONTRACTOR) {
+        return res.status(403).json({
+          message: "Only contractors can import homeowners"
+        });
+      }
+
+      console.log('Starting bulk import for contractor:', req.user!.id);
+
+      // Validate the input data
+      const parsed = bulkHomeownerImportSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid import data",
+          errors: parsed.error.errors
+        });
+      }
+
+      // Process the bulk import
+      const results = await storage.bulkImportHomeowners(req.user!.id, parsed.data);
+
+      console.log('Bulk import completed, created users:', results.length);
+
+      res.status(201).json({
+        message: `Successfully imported ${results.length} homeowners`,
+        importedUsers: results
+      });
+    } catch (error: any) {
+      console.error('Bulk import failed:', error);
       res.status(400).json({ message: error.message });
     }
   });
