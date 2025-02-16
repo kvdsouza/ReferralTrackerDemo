@@ -84,6 +84,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Add educational material
+  app.post("/api/educational-materials", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== userRoles.CONTRACTOR) {
+        return res.status(403).json({
+          message: "Only contractors can add educational materials"
+        });
+      }
+
+      const material = await storage.createEducationalMaterial(req.user!.id, req.body);
+      res.status(201).json(material);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Get educational materials
+  app.get("/api/educational-materials", requireAuth, async (req, res) => {
+    try {
+      const materials = await storage.getEducationalMaterials(req.user!.id);
+      res.json(materials);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   // Verify referral
   app.post("/api/referrals/verify", requireAuth, async (req, res) => {
     try {

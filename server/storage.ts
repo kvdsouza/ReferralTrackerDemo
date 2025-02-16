@@ -1,4 +1,4 @@
-import { users, referrals, type User, type InsertUser, type Referral, type InsertReferral } from "@shared/schema";
+import { users, referrals, educationalMaterials, type User, type InsertUser, type Referral, type InsertReferral, type EducationalMaterial, type InsertEducationalMaterial } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import session from "express-session";
@@ -17,6 +17,9 @@ export interface IStorage {
   createReferral(contractorId: number, referral: InsertReferral): Promise<Referral>;
   getReferralByCode(code: string): Promise<Referral | undefined>;
   updateReferral(id: number, data: Partial<Referral>): Promise<Referral>;
+
+  createEducationalMaterial(contractorId: number, material: InsertEducationalMaterial): Promise<EducationalMaterial>;
+  getEducationalMaterials(contractorId: number): Promise<EducationalMaterial[]>;
 
   sessionStore: session.Store;
 }
@@ -53,13 +56,6 @@ export class DatabaseStorage implements IStorage {
       .where(eq(referrals.contractorId, contractorId));
   }
 
-  private calculateStatus(installationDate: Date | null): string {
-    if (!installationDate) return "pending";
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Reset time part for date comparison
-    return installationDate > today ? "wait for install" : "complete";
-  }
-
   async createReferral(contractorId: number, data: InsertReferral): Promise<Referral> {
     try {
       // Verify contractor exists
@@ -90,8 +86,8 @@ export class DatabaseStorage implements IStorage {
       }
 
       // Generate a unique referral code that includes contractor identifier
-      const contractorPrefix = contractor.companyName 
-        ? contractor.companyName.substring(0, 3).toUpperCase() 
+      const contractorPrefix = contractor.companyName
+        ? contractor.companyName.substring(0, 3).toUpperCase()
         : 'REF';
       const uniqueId = Math.random().toString(36).substring(2, 7).toUpperCase();
       const referralCode = `${contractorPrefix}-${uniqueId}`;
@@ -119,51 +115,35 @@ export class DatabaseStorage implements IStorage {
     const [referral] = await db
       .select()
       .from(referrals)
-      .where(
-        and(
-          eq(referrals.referralCode, code),
-          eq(referrals.verified, false)
-        )
-      );
+      .where(eq(referrals.referralCode, code));
     return referral;
   }
 
   async updateReferral(id: number, data: Partial<Referral>): Promise<Referral> {
-    // Check if the referral exists
-    const [existingReferral] = await db
-      .select()
-      .from(referrals)
-      .where(eq(referrals.id, id));
-
-    if (!existingReferral) {
-      throw new Error("Referral not found");
-    }
-
-    // Check for duplicate referred address
-    if (data.referredCustomerAddress) {
-      const [duplicateAddress] = await db
-        .select()
-        .from(referrals)
-        .where(eq(referrals.referredCustomerAddress, data.referredCustomerAddress));
-
-      if (duplicateAddress && duplicateAddress.id !== id) {
-        throw new Error("This referred address is already registered");
-      }
-    }
-
-    // Calculate status based on installation date
-    const status = this.calculateStatus(
-      data.installationDate || existingReferral.installationDate
-    );
-
-    // Update the referral
     const [updated] = await db
       .update(referrals)
-      .set({ ...data, status })
+      .set(data)
       .where(eq(referrals.id, id))
       .returning();
-
     return updated;
+  }
+
+  async createEducationalMaterial(contractorId: number, material: InsertEducationalMaterial): Promise<EducationalMaterial> {
+    const [created] = await db
+      .insert(educationalMaterials)
+      .values({
+        ...material,
+        contractorId,
+      })
+      .returning();
+    return created;
+  }
+
+  async getEducationalMaterials(contractorId: number): Promise<EducationalMaterial[]> {
+    return await db
+      .select()
+      .from(educationalMaterials)
+      .where(eq(educationalMaterials.contractorId, contractorId));
   }
 }
 
