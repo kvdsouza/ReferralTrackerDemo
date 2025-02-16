@@ -1,11 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { setupAuth } from "./auth";
+import { setupAuth, hashPassword } from "./auth";
 import { storage } from "./storage";
 import { insertReferralSchema, verifyReferralSchema, userRoles, insertUserSchema } from "@shared/schema";
 import { bulkHomeownerImportSchema } from "@shared/schema";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
+import { sendReferralCodeEmail } from "./email";
 
 const scryptAsync = promisify(scrypt);
 
@@ -244,6 +245,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const results = await storage.bulkImportHomeowners(req.user!.id, parsed.data);
+
+      // Send emails to all imported homeowners
+      await Promise.all(
+        results.map(user => sendReferralCodeEmail(user))
+      );
 
       res.status(201).json({
         message: `Successfully imported ${results.length} homeowners`,
