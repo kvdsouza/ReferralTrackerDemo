@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
+import { userRoles } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -65,16 +66,37 @@ export class DatabaseStorage implements IStorage {
       const [contractor] = await db
         .select()
         .from(users)
-        .where(eq(users.id, contractorId));
+        .where(and(
+          eq(users.id, contractorId),
+          eq(users.role, userRoles.CONTRACTOR)
+        ));
 
       if (!contractor) {
-        throw new Error("Contractor not found");
+        throw new Error("Invalid contractor ID or user is not a contractor");
       }
 
-      // Generate a unique referral code
-      const referralCode = Math.random().toString(36).substring(2, 12).toUpperCase();
+      // Verify referrer exists and is associated with this contractor
+      const [referrer] = await db
+        .select()
+        .from(users)
+        .where(and(
+          eq(users.id, data.referrerId),
+          eq(users.contractorId, contractorId),
+          eq(users.role, userRoles.EXISTING_HOMEOWNER)
+        ));
 
-      // Create the referral with all required fields
+      if (!referrer) {
+        throw new Error("Referrer must be an existing homeowner associated with this contractor");
+      }
+
+      // Generate a unique referral code that includes contractor identifier
+      const contractorPrefix = contractor.companyName 
+        ? contractor.companyName.substring(0, 3).toUpperCase() 
+        : 'REF';
+      const uniqueId = Math.random().toString(36).substring(2, 7).toUpperCase();
+      const referralCode = `${contractorPrefix}-${uniqueId}`;
+
+      // Create the referral
       const [referral] = await db
         .insert(referrals)
         .values({
@@ -124,7 +146,7 @@ export class DatabaseStorage implements IStorage {
         .from(referrals)
         .where(eq(referrals.referredCustomerAddress, data.referredCustomerAddress));
 
-      if (duplicateAddress) {
+      if (duplicateAddress && duplicateAddress.id !== id) {
         throw new Error("This referred address is already registered");
       }
     }

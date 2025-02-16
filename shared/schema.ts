@@ -21,6 +21,7 @@ export const users = pgTable("users", {
   address: text("address"),
   installationDate: timestamp("installation_date"),
   referralCode: text("referral_code"), // For existing homeowners
+  contractorId: integer("contractor_id").references(() => users.id), // Link to their contractor
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -67,14 +68,14 @@ export const insertUserSchema = createInsertSchema(users)
   });
 
 export const insertReferralSchema = createInsertSchema(referrals)
-  .omit({ 
+  .omit({
     id: true,
     contractorId: true,
     referredId: true,
     referralCode: true,
     status: true,
     verified: true,
-    createdAt: true 
+    createdAt: true
   });
 
 export const verifyReferralSchema = z.object({
