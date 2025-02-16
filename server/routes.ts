@@ -33,11 +33,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Get the contractor ID from the request body
+      // Get and validate the contractor ID
       const { contractorId } = req.body;
       if (!contractorId) {
         console.log('Missing contractorId in request body');
         return res.status(400).json({ message: "Contractor ID is required" });
+      }
+
+      // Verify contractor exists and has correct role
+      const contractor = await storage.getUser(contractorId);
+      if (!contractor || contractor.role !== userRoles.CONTRACTOR) {
+        console.log('Invalid contractor:', { contractorId, found: !!contractor, role: contractor?.role });
+        return res.status(400).json({ message: "Invalid contractor ID" });
       }
 
       console.log('Creating referral for contractor:', contractorId);
@@ -51,7 +58,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(referral);
     } catch (error: any) {
       console.error('Error generating referral:', error);
-      res.status(400).json({ message: error.message });
+      res.status(500).json({ message: error.message || "Failed to generate referral code" });
     }
   });
 

@@ -60,17 +60,37 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createReferral(contractorId: number, data: InsertReferral): Promise<Referral> {
-    const [referral] = await db
-      .insert(referrals)
-      .values({
-        ...data,
-        contractorId,
-        referralCode: Math.random().toString(36).substring(2, 12),
-        status: "pending",
-        verified: false,
-      })
-      .returning();
-    return referral;
+    try {
+      // Verify contractor exists
+      const [contractor] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, contractorId));
+
+      if (!contractor) {
+        throw new Error("Contractor not found");
+      }
+
+      // Generate a unique referral code
+      const referralCode = Math.random().toString(36).substring(2, 12).toUpperCase();
+
+      // Create the referral with all required fields
+      const [referral] = await db
+        .insert(referrals)
+        .values({
+          ...data,
+          contractorId,
+          referralCode,
+          status: "pending",
+          verified: false,
+        })
+        .returning();
+
+      return referral;
+    } catch (error: any) {
+      console.error('Error creating referral:', error);
+      throw error;
+    }
   }
 
   async getReferralByCode(code: string): Promise<Referral | undefined> {
