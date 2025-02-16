@@ -65,12 +65,19 @@ export function setupAuth(app: Express) {
     }
 
     // Generate referral code for existing homeowners
+    let referralCode = null;
+    if (req.body.role === userRoles.EXISTING_HOMEOWNER) {
+      try {
+        referralCode = await storage.generateUniqueReferralCode();
+      } catch (error) {
+        return res.status(500).send("Failed to generate referral code");
+      }
+    }
+
     const userData = {
       ...req.body,
       password: await hashPassword(req.body.password),
-      referralCode: req.body.role === userRoles.EXISTING_HOMEOWNER ? 
-        await storage.generateUniqueReferralCode() : 
-        null
+      referralCode
     };
 
     const user = await storage.createUser(userData);

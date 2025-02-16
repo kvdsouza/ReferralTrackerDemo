@@ -13,34 +13,6 @@ import { randomBytes } from "crypto";
 
 const PostgresSessionStore = connectPg(session);
 
-function generateReferralCode(): string {
-  // Generate 6 random bytes (48 bits) and encode as base32
-  // This gives us 10 characters that are easy to read and type
-  const bytes = randomBytes(6);
-  // Convert to base32 and remove 'O' and 'I' to avoid confusion
-  return bytes.toString('base32')
-    .substring(0, 10)
-    .replace(/O/g, '8')
-    .replace(/I/g, '9')
-    .toUpperCase();
-}
-
-async function generateUniqueReferralCode(): Promise<string> {
-  for (let attempts = 0; attempts < 3; attempts++) {
-    const code = generateReferralCode();
-    // Check if code already exists
-    const [existing] = await db
-      .select()
-      .from(referrals)
-      .where(eq(referrals.referralCode, code));
-
-    if (!existing) {
-      return code;
-    }
-  }
-  throw new Error("Failed to generate unique referral code after 3 attempts");
-}
-
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -56,6 +28,7 @@ export interface IStorage {
   getCrmIntegration(contractorId: number, platform: string): Promise<CrmIntegration | undefined>;
   updateCrmIntegration(id: number, data: Partial<CrmIntegration>): Promise<CrmIntegration>;
   syncWithCrm(contractorId: number, platform: string): Promise<void>;
+  generateUniqueReferralCode(): Promise<string>; // Added to interface
   sessionStore: session.Store;
 }
 
@@ -67,6 +40,29 @@ export class DatabaseStorage implements IStorage {
       pool,
       createTableIfMissing: true,
     });
+  }
+
+  private generateReferralCode(): string {
+    const bytes = randomBytes(6);
+    return bytes.toString('hex')
+      .substring(0, 10)
+      .toUpperCase();
+  }
+
+  async generateUniqueReferralCode(): Promise<string> {
+    for (let attempts = 0; attempts < 3; attempts++) {
+      const code = this.generateReferralCode();
+      // Check if code already exists
+      const [existing] = await db
+        .select()
+        .from(referrals)
+        .where(eq(referrals.referralCode, code));
+
+      if (!existing) {
+        return code;
+      }
+    }
+    throw new Error("Failed to generate unique referral code after 3 attempts");
   }
 
   async getUser(id: number): Promise<User | undefined> {
@@ -99,7 +95,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createReferral(contractorId: number, data: InsertReferral): Promise<Referral> {
-    const referralCode = await generateUniqueReferralCode();
+    const referralCode = await this.generateUniqueReferralCode();
 
     const [referral] = await db
       .insert(referrals)
