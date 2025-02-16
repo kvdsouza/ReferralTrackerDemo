@@ -1,11 +1,15 @@
 import { useAuth } from "@/hooks/use-auth";
+import { userRoles } from "@shared/schema";
+import ContractorDashboard from "@/components/dashboards/contractor-dashboard";
+import ExistingHomeownerDashboard from "@/components/dashboards/existing-homeowner-dashboard";
+import ReferredHomeownerDashboard from "@/components/dashboards/referred-homeowner-dashboard";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
-import ReferralTable from "@/components/referral-table";
-import GenerateCode from "@/components/generate-code";
 
 export default function HomePage() {
   const { user, logoutMutation } = useAuth();
+
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -13,9 +17,11 @@ export default function HomePage() {
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold">ReferralTrack</h1>
-            <span className="text-muted-foreground">{user?.companyName}</span>
+            {user.role === userRoles.CONTRACTOR && (
+              <span className="text-muted-foreground">{user.companyName}</span>
+            )}
           </div>
-          
+
           <Button
             variant="ghost"
             onClick={() => logoutMutation.mutate()}
@@ -27,19 +33,10 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-            <p className="text-muted-foreground">
-              Manage your referrals and generate new referral codes.
-            </p>
-          </div>
-          
-          <GenerateCode />
-        </div>
-
-        <ReferralTable />
+      <main className="container mx-auto px-4 py-8">
+        {user.role === userRoles.CONTRACTOR && <ContractorDashboard />}
+        {user.role === userRoles.EXISTING_HOMEOWNER && <ExistingHomeownerDashboard />}
+        {user.role === userRoles.REFERRED_HOMEOWNER && <ReferredHomeownerDashboard />}
       </main>
     </div>
   );

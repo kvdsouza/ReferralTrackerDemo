@@ -2,11 +2,25 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
-import { insertUserSchema, type InsertUser } from "@shared/schema";
+import { insertUserSchema, type InsertUser, userRoles } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Building2 } from "lucide-react";
 
@@ -32,11 +46,11 @@ export default function AuthPage() {
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="register">Register</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="login">
                 <LoginForm />
               </TabsContent>
-              
+
               <TabsContent value="register">
                 <RegisterForm />
               </TabsContent>
@@ -44,7 +58,7 @@ export default function AuthPage() {
           </CardContent>
         </Card>
       </div>
-      
+
       <div className="hidden lg:flex flex-1 bg-primary items-center justify-center text-primary-foreground p-8">
         <div className="max-w-md space-y-6">
           <Building2 className="w-16 h-16" />
@@ -80,7 +94,7 @@ function LoginForm() {
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
           name="password"
@@ -112,13 +126,40 @@ function RegisterForm() {
       username: "",
       password: "",
       confirmPassword: "",
+      email: "",
+      role: userRoles.CONTRACTOR,
       companyName: "",
     },
   });
 
+  const role = form.watch("role");
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit((data) => registerMutation.mutate(data))} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="role"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>I am a...</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your role" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value={userRoles.CONTRACTOR}>Contractor</SelectItem>
+                  <SelectItem value={userRoles.EXISTING_HOMEOWNER}>Existing Homeowner</SelectItem>
+                  <SelectItem value={userRoles.REFERRED_HOMEOWNER}>Referred Homeowner</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <FormField
           control={form.control}
           name="username"
@@ -132,21 +173,53 @@ function RegisterForm() {
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
-          name="companyName"
+          name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Company Name</FormLabel>
+              <FormLabel>Email</FormLabel>
               <FormControl>
-                <Input {...field} />
+                <Input type="email" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        
+
+        {role === userRoles.CONTRACTOR && (
+          <FormField
+            control={form.control}
+            name="companyName"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Company Name</FormLabel>
+                <FormControl>
+                  <Input {...field} value={field.value ?? ""} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
+        {(role === userRoles.EXISTING_HOMEOWNER || role === userRoles.REFERRED_HOMEOWNER) && (
+          <FormField
+            control={form.control}
+            name="address"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Address</FormLabel>
+                <FormControl>
+                  <Input {...field} value={field.value ?? ""} placeholder="123 Main St, City, State, ZIP" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
         <FormField
           control={form.control}
           name="password"
@@ -160,7 +233,7 @@ function RegisterForm() {
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
           name="confirmPassword"
