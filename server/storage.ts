@@ -9,8 +9,37 @@ import { eq, and } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
+import { randomBytes } from "crypto";
 
 const PostgresSessionStore = connectPg(session);
+
+function generateReferralCode(): string {
+  // Generate 6 random bytes (48 bits) and encode as base32
+  // This gives us 10 characters that are easy to read and type
+  const bytes = randomBytes(6);
+  // Convert to base32 and remove 'O' and 'I' to avoid confusion
+  return bytes.toString('base32')
+    .substring(0, 10)
+    .replace(/O/g, '8')
+    .replace(/I/g, '9')
+    .toUpperCase();
+}
+
+async function generateUniqueReferralCode(): Promise<string> {
+  for (let attempts = 0; attempts < 3; attempts++) {
+    const code = generateReferralCode();
+    // Check if code already exists
+    const [existing] = await db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.referralCode, code));
+
+    if (!existing) {
+      return code;
+    }
+  }
+  throw new Error("Failed to generate unique referral code after 3 attempts");
+}
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -22,7 +51,7 @@ export interface IStorage {
   updateReferral(id: number, data: Partial<Referral>): Promise<Referral>;
   trackAnalyticsEvent(event: InsertAnalyticsEvent): Promise<AnalyticsEvent>;
   getAnalytics(contractorId: number): Promise<ReferralMetric>;
-  updateReferralMetrics(contractorId: number): Promise<ReferralMetric>; // Changed return type to match implementation
+  updateReferralMetrics(contractorId: number): Promise<ReferralMetric>; 
   createCrmIntegration(integration: InsertCrmIntegration): Promise<CrmIntegration>;
   getCrmIntegration(contractorId: number, platform: string): Promise<CrmIntegration | undefined>;
   updateCrmIntegration(id: number, data: Partial<CrmIntegration>): Promise<CrmIntegration>;
@@ -65,21 +94,35 @@ export class DatabaseStorage implements IStorage {
   private calculateStatus(installationDate: Date | null): string {
     if (!installationDate) return "pending";
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Reset time part for date comparison
+    today.setHours(0, 0, 0, 0); 
     return installationDate > today ? "wait for install" : "complete";
   }
 
   async createReferral(contractorId: number, data: InsertReferral): Promise<Referral> {
+    const referralCode = await generateUniqueReferralCode();
+
     const [referral] = await db
       .insert(referrals)
       .values({
         ...data,
         contractorId,
-        referralCode: Math.random().toString(36).substring(2, 12),
+        referralCode,
         status: "pending",
         verified: false,
       })
       .returning();
+
+    // Track analytics event for referral creation
+    await this.trackAnalyticsEvent({
+      contractorId,
+      eventType: 'referral_created',
+      eventData: {
+        referralId: referral.id,
+        referralCode: referral.referralCode,
+        timestamp: new Date().toISOString()
+      }
+    });
+
     return referral;
   }
 
@@ -158,7 +201,7 @@ export class DatabaseStorage implements IStorage {
 
     const total = referralsList.length;
     const converted = referralsList.filter(r => r.status === "complete").length;
-    const conversionRate = (total > 0 ? (converted / total) * 100 : 0).toFixed(2); // Convert to fixed string
+    const conversionRate = (total > 0 ? (converted / total) * 100 : 0).toFixed(2); 
 
     const conversionTimes = referralsList
       .filter(r => r.status === "complete" && r.installationDate)

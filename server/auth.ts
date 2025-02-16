@@ -5,7 +5,7 @@ import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
-import { User as SelectUser } from "@shared/schema";
+import { User as SelectUser, userRoles } from "@shared/schema";
 
 declare global {
   namespace Express {
@@ -64,10 +64,27 @@ export function setupAuth(app: Express) {
       return res.status(400).send("Username already exists");
     }
 
-    const user = await storage.createUser({
+    // Generate referral code for existing homeowners
+    const userData = {
       ...req.body,
       password: await hashPassword(req.body.password),
-    });
+      referralCode: req.body.role === userRoles.EXISTING_HOMEOWNER ? 
+        await storage.generateUniqueReferralCode() : 
+        null
+    };
+
+    const user = await storage.createUser(userData);
+
+    // Track user registration in analytics
+    if (user.role === userRoles.CONTRACTOR) {
+      await storage.trackAnalyticsEvent({
+        contractorId: user.id,
+        eventType: 'contractor_registered',
+        eventData: {
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
 
     req.login(user, (err) => {
       if (err) return next(err);
