@@ -10,9 +10,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
 import { FileText, Video, FileCode } from "lucide-react";
+import { format } from "date-fns";
 
 export default function ReferredHomeownerDashboard() {
   const { user } = useAuth();
