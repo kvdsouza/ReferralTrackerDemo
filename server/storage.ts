@@ -1,46 +1,11 @@
-import { users, referrals, educationalMaterials, type User, type InsertUser, type Referral, type InsertReferral, type EducationalMaterial, type InsertEducationalMaterial, bulkHomeownerImportSchema } from "@shared/schema";
+import { users, referrals, type User, type InsertUser, type Referral, type InsertReferral } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
+import connectPg from "connect-pg-simple";
 import { pool } from "./db";
-import { userRoles } from "@shared/schema";
-import { scrypt, randomBytes } from "crypto";
-import { promisify } from "util";
-import { z } from "zod";
 
-const scryptAsync = promisify(scrypt);
-const PostgresSessionStore = connectPgSimple(session);
-
-async function hashPassword(password: string) {
-  const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${buf.toString("hex")}.${salt}`;
-}
-
-async function generateUniqueReferralCode(tx: any, contractorPrefix: string): Promise<string> {
-  let attempts = 0;
-  const maxAttempts = 5;
-
-  while (attempts < maxAttempts) {
-    const uniqueId = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const referralCode = `${contractorPrefix}-${uniqueId}`;
-
-    // Check if code already exists
-    const [existing] = await tx
-      .select()
-      .from(referrals)
-      .where(eq(referrals.referralCode, referralCode));
-
-    if (!existing) {
-      return referralCode;
-    }
-
-    attempts++;
-  }
-
-  throw new Error("Failed to generate unique referral code after multiple attempts");
-}
+const PostgresSessionStore = connectPg(session);
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -52,10 +17,6 @@ export interface IStorage {
   getReferralByCode(code: string): Promise<Referral | undefined>;
   updateReferral(id: number, data: Partial<Referral>): Promise<Referral>;
 
-  createEducationalMaterial(contractorId: number, material: InsertEducationalMaterial): Promise<EducationalMaterial>;
-  getEducationalMaterials(contractorId: number): Promise<EducationalMaterial[]>;
-
-  bulkImportHomeowners(contractorId: number, homeowners: z.infer<typeof bulkHomeownerImportSchema>): Promise<User[]>;
   sessionStore: session.Store;
 }
 
@@ -91,160 +52,76 @@ export class DatabaseStorage implements IStorage {
       .where(eq(referrals.contractorId, contractorId));
   }
 
+  private calculateStatus(installationDate: Date | null): string {
+    if (!installationDate) return "pending";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time part for date comparison
+    return installationDate > today ? "wait for install" : "complete";
+  }
+
   async createReferral(contractorId: number, data: InsertReferral): Promise<Referral> {
-    return await db.transaction(async (tx) => {
-      try {
-        // Verify contractor exists and get company info for code generation
-        const [contractor] = await tx
-          .select()
-          .from(users)
-          .where(and(
-            eq(users.id, contractorId),
-            eq(users.role, userRoles.CONTRACTOR)
-          ));
-
-        if (!contractor) {
-          throw new Error("Invalid contractor ID or user is not a contractor");
-        }
-
-        // Verify referrer exists and is associated with this contractor
-        const [referrer] = await tx
-          .select()
-          .from(users)
-          .where(and(
-            eq(users.id, data.referrerId),
-            eq(users.contractorId, contractorId),
-            eq(users.role, userRoles.EXISTING_HOMEOWNER)
-          ));
-
-        if (!referrer) {
-          throw new Error("Referrer must be an existing homeowner associated with this contractor");
-        }
-
-        // Generate unique referral code
-        const contractorPrefix = contractor.companyName
-          ? contractor.companyName.substring(0, 3).toUpperCase()
-          : 'REF';
-        const referralCode = await generateUniqueReferralCode(tx, contractorPrefix);
-
-        // Create the referral
-        const [referral] = await tx
-          .insert(referrals)
-          .values({
-            contractorId,
-            referrerId: data.referrerId,
-            referredCustomerAddress: data.referredCustomerAddress || '',
-            installationDate: data.installationDate || null,
-            referralCode,
-            status: "pending",
-            verified: false,
-          })
-          .returning();
-
-        return referral;
-      } catch (error) {
-        console.error('Error creating referral:', error);
-        throw error;
-      }
-    });
+    const [referral] = await db
+      .insert(referrals)
+      .values({
+        ...data,
+        contractorId,
+        referralCode: Math.random().toString(36).substring(2, 12),
+        status: "pending",
+        verified: false,
+      })
+      .returning();
+    return referral;
   }
 
   async getReferralByCode(code: string): Promise<Referral | undefined> {
     const [referral] = await db
       .select()
       .from(referrals)
-      .where(eq(referrals.referralCode, code));
+      .where(
+        and(
+          eq(referrals.referralCode, code),
+          eq(referrals.verified, false)
+        )
+      );
     return referral;
   }
 
   async updateReferral(id: number, data: Partial<Referral>): Promise<Referral> {
+    // Check if the referral exists
+    const [existingReferral] = await db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.id, id));
+
+    if (!existingReferral) {
+      throw new Error("Referral not found");
+    }
+
+    // Check for duplicate referred address
+    if (data.referredCustomerAddress) {
+      const [duplicateAddress] = await db
+        .select()
+        .from(referrals)
+        .where(eq(referrals.referredCustomerAddress, data.referredCustomerAddress));
+
+      if (duplicateAddress) {
+        throw new Error("This referred address is already registered");
+      }
+    }
+
+    // Calculate status based on installation date
+    const status = this.calculateStatus(
+      data.installationDate || existingReferral.installationDate
+    );
+
+    // Update the referral
     const [updated] = await db
       .update(referrals)
-      .set(data)
+      .set({ ...data, status })
       .where(eq(referrals.id, id))
       .returning();
+
     return updated;
-  }
-
-  async createEducationalMaterial(contractorId: number, material: InsertEducationalMaterial): Promise<EducationalMaterial> {
-    const [created] = await db
-      .insert(educationalMaterials)
-      .values({
-        ...material,
-        contractorId,
-      })
-      .returning();
-    return created;
-  }
-
-  async getEducationalMaterials(contractorId: number): Promise<EducationalMaterial[]> {
-    return await db
-      .select()
-      .from(educationalMaterials)
-      .where(eq(educationalMaterials.contractorId, contractorId));
-  }
-
-  async bulkImportHomeowners(contractorId: number, homeowners: z.infer<typeof bulkHomeownerImportSchema>): Promise<User[]> {
-    return await db.transaction(async (tx) => {
-      try {
-        // Verify contractor exists
-        const [contractor] = await tx
-          .select()
-          .from(users)
-          .where(and(
-            eq(users.id, contractorId),
-            eq(users.role, userRoles.CONTRACTOR)
-          ));
-
-        if (!contractor) {
-          throw new Error("Invalid contractor ID or user is not a contractor");
-        }
-
-        // Generate contractor prefix for referral codes
-        const contractorPrefix = contractor.companyName
-          ? contractor.companyName.substring(0, 3).toUpperCase()
-          : 'REF';
-
-        // Process each homeowner
-        const createdUsers = await Promise.all(homeowners.map(async (homeowner) => {
-          // Generate unique referral code
-          const referralCode = await generateUniqueReferralCode(tx, contractorPrefix);
-
-          // Create user with hashed password
-          const [user] = await tx
-            .insert(users)
-            .values({
-              username: homeowner.username,
-              password: await hashPassword(homeowner.password),
-              email: homeowner.email,
-              address: homeowner.address,
-              role: userRoles.EXISTING_HOMEOWNER,
-              contractorId,
-              referralCode,
-            })
-            .returning();
-
-          // Create initial referral entry
-          await tx
-            .insert(referrals)
-            .values({
-              contractorId,
-              referrerId: user.id,
-              referralCode,
-              status: "pending",
-              verified: false,
-              referredCustomerAddress: '',
-            });
-
-          return user;
-        }));
-
-        return createdUsers;
-      } catch (error) {
-        console.error('Bulk import transaction failed:', error);
-        throw error;
-      }
-    });
   }
 }
 

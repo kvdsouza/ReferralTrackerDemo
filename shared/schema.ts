@@ -21,7 +21,6 @@ export const users = pgTable("users", {
   address: text("address"),
   installationDate: timestamp("installation_date"),
   referralCode: text("referral_code"), // For existing homeowners
-  contractorId: integer("contractor_id").references(() => users.id), // Link to their contractor
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -68,14 +67,14 @@ export const insertUserSchema = createInsertSchema(users)
   });
 
 export const insertReferralSchema = createInsertSchema(referrals)
-  .omit({
+  .omit({ 
     id: true,
     contractorId: true,
     referredId: true,
     referralCode: true,
     status: true,
     verified: true,
-    createdAt: true
+    createdAt: true 
   });
 
 export const verifyReferralSchema = z.object({
@@ -87,27 +86,6 @@ export const verifyReferralSchema = z.object({
 export const insertEducationalMaterialSchema = createInsertSchema(educationalMaterials)
   .omit({ id: true, createdAt: true });
 
-export const bulkHomeownerImportSchema = z.array(
-  z.object({
-    username: z.string().min(1, "Username is required"),
-    email: z.string().email("Invalid email address"),
-    address: z.string().min(1, "Address is required"),
-    password: z.string().min(6, "Password must be at least 6 characters"),
-  })
-);
-
-// Add CSV import schema
-export const csvHomeownerSchema = z.object({
-  csvContent: z.string().min(1, "CSV content is required"),
-});
-
-// Add CSV row validation schema
-export const csvRowSchema = z.object({
-  username: z.string().min(1, "Username is required"),
-  email: z.string().email("Invalid email address"),
-  address: z.string().min(1, "Address is required"),
-});
-
 // Export types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -116,5 +94,3 @@ export type InsertReferral = z.infer<typeof insertReferralSchema>;
 export type VerifyReferral = z.infer<typeof verifyReferralSchema>;
 export type EducationalMaterial = typeof educationalMaterials.$inferSelect;
 export type InsertEducationalMaterial = z.infer<typeof insertEducationalMaterialSchema>;
-export type BulkHomeownerImport = z.infer<typeof bulkHomeownerImportSchema>;
-export type CSVHomeownerImport = z.infer<typeof csvHomeownerSchema>;
