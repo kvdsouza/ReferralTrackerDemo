@@ -2,8 +2,18 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
-import { insertReferralSchema, verifyReferralSchema, userRoles } from "@shared/schema";
+import { insertReferralSchema, verifyReferralSchema, userRoles, insertUserSchema } from "@shared/schema";
 import { bulkHomeownerImportSchema } from "@shared/schema";
+import { scrypt, randomBytes } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+
+async function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const requireAuth = (req: any, res: any, next: any) => {
@@ -63,31 +73,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create referral by contractor
-  app.post("/api/referrals", requireAuth, async (req, res) => {
-    try {
-      if (req.user!.role !== userRoles.CONTRACTOR) {
-        return res.status(403).json({ message: "Only contractors can create referrals" });
-      }
-
-      const parsed = insertReferralSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid referral data", errors: parsed.error.errors });
-      }
-
-      // Verify the referrer exists and is associated with this contractor
-      const referrer = await storage.getUser(parsed.data.referrerId);
-      if (!referrer || referrer.contractorId !== req.user!.id) {
-        return res.status(400).json({ message: "Invalid referrer ID" });
-      }
-
-      const referral = await storage.createReferral(req.user!.id, parsed.data);
-      res.status(201).json(referral);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
-
   // Add educational material
   app.post("/api/educational-materials", requireAuth, async (req, res) => {
     try {
@@ -111,6 +96,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(materials);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Sample data generation endpoint (development only)
+  app.post("/api/dev/generate-sample-data", async (req, res) => {
+    try {
+      // Create contractors
+      const contractors = await Promise.all([
+        storage.createUser({
+          username: "solarco",
+          password: await hashPassword("contractor123"),
+          email: "contact@solarco.com",
+          role: userRoles.CONTRACTOR,
+          companyName: "SolarCo Systems",
+          businessInfo: {
+            description: "Leading solar installation company",
+            phone: "555-0123"
+          }
+        }),
+        storage.createUser({
+          username: "greentech",
+          password: await hashPassword("contractor123"),
+          email: "info@greentech.com",
+          role: userRoles.CONTRACTOR,
+          companyName: "GreenTech Solar",
+          businessInfo: {
+            description: "Sustainable energy solutions",
+            phone: "555-0124"
+          }
+        })
+      ]);
+
+      // Create existing homeowners
+      const homeownersData = [
+        {
+          username: "john_doe",
+          email: "john@example.com",
+          password: await hashPassword("homeowner123"),
+          address: "123 Solar St, San Francisco, CA",
+          contractorId: contractors[0].id
+        },
+        {
+          username: "alice_smith",
+          email: "alice@example.com",
+          password: await hashPassword("homeowner123"),
+          address: "456 Green Ave, San Francisco, CA",
+          contractorId: contractors[0].id
+        },
+        {
+          username: "bob_wilson",
+          email: "bob@example.com",
+          password: await hashPassword("homeowner123"),
+          address: "789 Energy Blvd, San Francisco, CA",
+          contractorId: contractors[1].id
+        }
+      ];
+
+      const homeowners = await Promise.all(
+        homeownersData.map(data => 
+          storage.createUser({
+            ...data,
+            role: userRoles.EXISTING_HOMEOWNER,
+          })
+        )
+      );
+
+      // Generate referrals for each homeowner
+      const referrals = await Promise.all([
+        storage.createReferral(contractors[0].id, {
+          referrerId: homeowners[0].id,
+          referredCustomerAddress: "321 New St, San Francisco, CA",
+          installationDate: new Date("2024-03-01")
+        }),
+        storage.createReferral(contractors[0].id, {
+          referrerId: homeowners[1].id,
+          referredCustomerAddress: "654 Fresh Ave, San Francisco, CA",
+          installationDate: new Date("2024-03-15")
+        }),
+        storage.createReferral(contractors[1].id, {
+          referrerId: homeowners[2].id,
+          referredCustomerAddress: "987 Solar Way, San Francisco, CA",
+          installationDate: new Date("2024-04-01")
+        })
+      ]);
+
+      res.status(201).json({
+        message: "Sample data generated successfully",
+        data: {
+          contractors,
+          homeowners,
+          referrals
+        }
+      });
+    } catch (error: any) {
+      console.error('Error generating sample data:', error);
+      res.status(500).json({ message: error.message });
     }
   });
 
@@ -173,6 +254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(400).json({ message: error.message });
     }
   });
+
 
   const httpServer = createServer(app);
   return httpServer;
