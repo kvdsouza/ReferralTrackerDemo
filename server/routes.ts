@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
-import { insertReferralSchema, verifyReferralSchema } from "@shared/schema";
+import { insertReferralSchema, verifyReferralSchema, userRoles } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const requireAuth = (req: any, res: any, next: any) => {
@@ -16,9 +16,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(referrals);
   });
 
-  // Generate new referral code
+  // Generate new referral code for existing homeowner
+  app.post("/api/referrals/generate", requireAuth, async (req, res) => {
+    try {
+      // Verify the user is an existing homeowner
+      if (req.user!.role !== userRoles.EXISTING_HOMEOWNER) {
+        return res.status(403).json({ 
+          message: "Only existing homeowners can generate referral codes" 
+        });
+      }
+
+      // Get the contractor ID from the request body
+      const { contractorId } = req.body;
+      if (!contractorId) {
+        return res.status(400).json({ message: "Contractor ID is required" });
+      }
+
+      const referral = await storage.createReferral(contractorId, {
+        referrerId: req.user!.id,
+        referredCustomerAddress: '',
+        installationDate: null
+      });
+
+      res.status(201).json(referral);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Create referral by contractor
   app.post("/api/referrals", requireAuth, async (req, res) => {
     try {
+      // Verify the user is a contractor
+      if (req.user!.role !== userRoles.CONTRACTOR) {
+        return res.status(403).json({ 
+          message: "Only contractors can create referrals" 
+        });
+      }
+
       const parsed = insertReferralSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json(parsed.error);
