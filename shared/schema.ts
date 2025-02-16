@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, jsonb, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -54,6 +54,43 @@ export const educationalMaterials = pgTable("educational_materials", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// New tables for analytics and CRM integration
+export const analyticsEvents = pgTable("analytics_events", {
+  id: serial("id").primaryKey(),
+  contractorId: integer("contractor_id")
+    .notNull()
+    .references(() => users.id),
+  eventType: text("event_type").notNull(), // referral_created, referral_converted, etc.
+  eventData: jsonb("event_data").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const referralMetrics = pgTable("referral_metrics", {
+  id: serial("id").primaryKey(),
+  contractorId: integer("contractor_id")
+    .notNull()
+    .references(() => users.id),
+  totalReferrals: integer("total_referrals").notNull().default(0),
+  convertedReferrals: integer("converted_referrals").notNull().default(0),
+  conversionRate: text("conversion_rate").notNull().default('0'), // Changed to text to store decimal numbers as strings
+  averageTimeToConversion: integer("average_time_to_conversion"), // in days
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const crmIntegrations = pgTable("crm_integrations", {
+  id: serial("id").primaryKey(),
+  contractorId: integer("contractor_id")
+    .notNull()
+    .references(() => users.id),
+  platform: text("platform").notNull(), // salesforce, hubspot, etc.
+  credentials: jsonb("credentials").notNull(),
+  settings: jsonb("settings").notNull(),
+  lastSyncAt: timestamp("last_sync_at"),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+
 // Schemas for data insertion and validation
 export const insertUserSchema = createInsertSchema(users)
   .extend({
@@ -67,14 +104,14 @@ export const insertUserSchema = createInsertSchema(users)
   });
 
 export const insertReferralSchema = createInsertSchema(referrals)
-  .omit({ 
+  .omit({
     id: true,
     contractorId: true,
     referredId: true,
     referralCode: true,
     status: true,
     verified: true,
-    createdAt: true 
+    createdAt: true
   });
 
 export const verifyReferralSchema = z.object({
@@ -86,6 +123,29 @@ export const verifyReferralSchema = z.object({
 export const insertEducationalMaterialSchema = createInsertSchema(educationalMaterials)
   .omit({ id: true, createdAt: true });
 
+// New schemas for analytics and CRM
+export const insertAnalyticsEventSchema = createInsertSchema(analyticsEvents)
+  .omit({ id: true, createdAt: true });
+
+export const insertCrmIntegrationSchema = createInsertSchema(crmIntegrations)
+  .omit({ id: true, createdAt: true, lastSyncAt: true })
+  .extend({
+    credentials: z.object({
+      apiKey: z.string().optional(),
+      apiSecret: z.string().optional(),
+      refreshToken: z.string().optional(),
+      accessToken: z.string().optional(),
+    }),
+    settings: z.object({
+      syncFrequency: z.number().min(1).max(24), // hours
+      syncFields: z.array(z.string()),
+      automations: z.array(z.object({
+        trigger: z.string(),
+        action: z.string(),
+      })),
+    }),
+  });
+
 // Export types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -94,3 +154,10 @@ export type InsertReferral = z.infer<typeof insertReferralSchema>;
 export type VerifyReferral = z.infer<typeof verifyReferralSchema>;
 export type EducationalMaterial = typeof educationalMaterials.$inferSelect;
 export type InsertEducationalMaterial = z.infer<typeof insertEducationalMaterialSchema>;
+
+// New type exports
+export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+export type InsertAnalyticsEvent = z.infer<typeof insertAnalyticsEventSchema>;
+export type ReferralMetric = typeof referralMetrics.$inferSelect;
+export type CrmIntegration = typeof crmIntegrations.$inferSelect;
+export type InsertCrmIntegration = z.infer<typeof insertCrmIntegrationSchema>;
