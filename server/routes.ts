@@ -2,11 +2,12 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, hashPassword } from "./auth";
 import { storage } from "./storage";
-import { insertReferralSchema, verifyReferralSchema, userRoles, insertUserSchema } from "@shared/schema";
+import { insertReferralSchema, verifyReferralSchema, userRoles, insertUserSchema, csvHomeownerSchema } from "@shared/schema";
 import { bulkHomeownerImportSchema } from "@shared/schema";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { sendReferralCodeEmail } from "./email";
+import { parseCSV, generateSecurePassword } from "./utils/csv";
 
 const scryptAsync = promisify(scrypt);
 
@@ -257,6 +258,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error('Bulk import failed:', error);
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Add CSV import endpoint
+  app.post("/api/homeowners/import-csv", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== userRoles.CONTRACTOR) {
+        return res.status(403).json({
+          message: "Only contractors can import homeowners"
+        });
+      }
+
+      const parsed = csvHomeownerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Invalid CSV data",
+          errors: parsed.error.errors
+        });
+      }
+
+      try {
+        // Parse CSV content
+        const homeowners = parseCSV(parsed.data.csvContent);
+
+        // Add secure passwords for each homeowner
+        const homeownersWithPasswords = homeowners.map(homeowner => ({
+          ...homeowner,
+          password: generateSecurePassword()
+        }));
+
+        // Use existing bulk import functionality
+        const results = await storage.bulkImportHomeowners(req.user!.id, homeownersWithPasswords);
+
+        // Send emails to all imported homeowners
+        await Promise.all(
+          results.map(user => sendReferralCodeEmail(user))
+        );
+
+        res.status(201).json({
+          message: `Successfully imported ${results.length} homeowners from CSV`,
+          importedUsers: results
+        });
+      } catch (error: any) {
+        return res.status(400).json({
+          message: "CSV parsing failed",
+          error: error.message
+        });
+      }
+    } catch (error: any) {
+      console.error('CSV import failed:', error);
       res.status(400).json({ message: error.message });
     }
   });

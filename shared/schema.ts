@@ -96,6 +96,18 @@ export const bulkHomeownerImportSchema = z.array(
   })
 );
 
+// Add CSV import schema
+export const csvHomeownerSchema = z.object({
+  csvContent: z.string().min(1, "CSV content is required"),
+});
+
+// Add CSV row validation schema
+export const csvRowSchema = z.object({
+  username: z.string().min(1, "Username is required"),
+  email: z.string().email("Invalid email address"),
+  address: z.string().min(1, "Address is required"),
+});
+
 // Export types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -105,3 +117,4 @@ export type VerifyReferral = z.infer<typeof verifyReferralSchema>;
 export type EducationalMaterial = typeof educationalMaterials.$inferSelect;
 export type InsertEducationalMaterial = z.infer<typeof insertEducationalMaterialSchema>;
 export type BulkHomeownerImport = z.infer<typeof bulkHomeownerImportSchema>;
+export type CSVHomeownerImport = z.infer<typeof csvHomeownerSchema>;
