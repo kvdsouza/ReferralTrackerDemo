@@ -1,2 +1,2 @@
-# referralTracker1
+# ReferralTracker
 test of referralTracker
